@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 5s
+      timeout: 30s
+      retries: 5
+    networks:
+      - app_network
+  
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 30s
+      retries: 5
+    networks:
+      - app_network
+  
+  insult-service:
+    build: ./InsultService
+    image: insult-service-image
+    deploy:
+      replicas: 1
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - REDIS_HOST=redis
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app_network
+  
+  auto-scaler:
+    build: ./AutoScaler
+    command: python AutoScaler.py
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock 
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASS=guest
+      - REDIS_HOST=redis
+    depends_on:
+      - rabbitmq
+      - redis
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    name: rabbitmq_app_network
+    driver: bridge
